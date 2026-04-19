@@ -1,0 +1,1 @@
+# Scripts de sincronização automática
