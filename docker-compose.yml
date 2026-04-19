@@ -1,0 +1,71 @@
+# EAS API RAG - Docker Compose
+version: '3.8'
+
+services:
+  # API Principal
+  eas-api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: eas-api
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    env_file:
+      - .env
+    environment:
+      - HOST=0.0.0.0
+      - PORT=8000
+      - DEBUG=false
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/api/v1/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+    networks:
+      - eas-network
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  # Worker para processamento de embeddings (opcional)
+  eas-embedding-worker:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: eas-embedding-worker
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      - HOST=0.0.0.0
+      - PORT=8001
+    command: ["python", "-m", "app.services.embedding_processor"]
+    networks:
+      - eas-network
+    depends_on:
+      - eas-api
+    profiles:
+      - workers
+
+  # Redis para cache (opcional - futuro)
+  # redis:
+  #   image: redis:7-alpine
+  #   container_name: eas-redis
+  #   restart: unless-stopped
+  #   ports:
+  #     - "6379:6379"
+  #   networks:
+  #     - eas-network
+  #   volumes:
+  #     - redis-data:/data
+
+networks:
+  eas-network:
+    driver: bridge
+
+# volumes:
+#   redis-data:

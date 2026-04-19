@@ -1,0 +1,14 @@
+[
+  {
+    "titulo": "Exemplo de título",
+    "conteudo": "Conteúdo completo do conhecimento aqui...",
+    "categoria": "médico",
+    "tags": "cardiologia,anatomia"
+  },
+  {
+    "titulo": "Outro exemplo",
+    "conteudo": "Mais conteúdo relevante para a base de conhecimento...",
+    "categoria": "técnico",
+    "tags": "farmacologia"
+  }
+]
