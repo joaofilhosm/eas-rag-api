@@ -3,12 +3,11 @@ Router de Controle do Scraper.
 """
 from fastapi import APIRouter, HTTPException, Depends, Header
 from typing import List, Optional
-from uuid import UUID
 from datetime import datetime
 
 from app.models.scraper import ScraperStatus, ScraperResult, SourceConfig, Source, ScraperStart, ScrapeLog
 from app.services.api_key_service import APIKeyService
-from database.supabase_client import db
+from database.database import db
 from app.config import get_settings
 
 router = APIRouter()
@@ -46,7 +45,10 @@ async def get_scraper_status(_: bool = Depends(verify_master_key)):
     sources = await db.get_sources(active_only=True)
 
     # Conta fontes pendentes
-    pending_sources = await db.client.table("v_sources_needing_scrape").select("*").execute()
+    pending_sources = await db.fetch(
+        "SELECT COUNT(*) FROM sources WHERE is_active = true AND (last_scraped_at IS NULL OR last_scraped_at < NOW() - INTERVAL '1 day' * scrape_frequency_hours)"
+    )
+    pending_count = pending_sources[0]["count"] if pending_sources else 0
 
     return ScraperStatus(
         is_running=scraper_state["is_running"],
@@ -55,7 +57,7 @@ async def get_scraper_status(_: bool = Depends(verify_master_key)):
         last_status=scraper_state.get("last_status"),
         total_items=stats.get("total_knowledge", 0),
         sources_active=len(sources),
-        sources_pending=len(pending_sources.data) if pending_sources.data else 0
+        sources_pending=pending_count
     )
 
 
@@ -144,7 +146,7 @@ async def create_source(
     result = await db.create_source(
         name=data.name,
         url=data.url,
-        type=data.type.value,
+        source_type=data.type.value,
         scrape_frequency_hours=data.scrape_frequency_hours
     )
 
@@ -188,9 +190,12 @@ async def deactivate_source(
 
     Requer header X-Master-Key.
     """
-    result = await db.client.table("sources").update({"is_active": False}).eq("id", source_id).execute()
+    result = await db.execute(
+        "UPDATE sources SET is_active = false WHERE id = $1",
+        source_id
+    )
 
-    if not result.data:
+    if "UPDATE 1" not in result:
         raise HTTPException(
             status_code=404,
             detail="Source not found"

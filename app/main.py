@@ -36,6 +36,15 @@ async def lifespan(app: FastAPI):
     logger.info(f"📡 Servidor: {settings.host}:{settings.port}")
     logger.info(f"🤖 Modelo padrão: {settings.default_model}")
 
+    # Conecta ao banco de dados PostgreSQL
+    from database.database import db
+    try:
+        await db.connect()
+        logger.info("✓ Conectado ao PostgreSQL")
+    except Exception as e:
+        logger.error(f"✗ Erro ao conectar ao PostgreSQL: {e}")
+        raise
+
     # Inicialização do scheduler de scraping
     # TODO: Implementar scheduler
     # from scraper.scheduler import ScraperScheduler
@@ -46,7 +55,8 @@ async def lifespan(app: FastAPI):
 
     # Cleanup
     logger.info("🛑 Encerrando EAS API...")
-    # scheduler.stop()
+    await db.disconnect()
+    logger.info("✓ Conexão com PostgreSQL fechada")
 
 
 # Criação da aplicação FastAPI

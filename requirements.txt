@@ -5,9 +5,11 @@ pydantic>=2.5.0
 pydantic-settings>=2.1.0
 python-multipart>=0.0.6
 
-# Database
-supabase>=2.3.0
+# Database (PostgreSQL + pgvector)
 asyncpg>=0.29.0
+psycopg2-binary>=2.9.9
+sqlalchemy>=2.0.0
+alembic>=1.13.0
 
 # AI/ML (OpenRouter - compatível com OpenAI SDK)
 openai>=1.10.0

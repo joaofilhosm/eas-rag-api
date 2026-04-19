@@ -1,7 +1,4 @@
-"""Database module EAS."""
-from .supabase_client import get_supabase_client, supabase
+"""Database module EAS - PostgreSQL + pgvector."""
+from .database import db, get_database, get_db, Database
 
-__all__ = [
-    "get_supabase_client",
-    "supabase"
-]
+__all__ = ["db", "get_database", "get_db", "Database"]

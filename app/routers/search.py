@@ -4,7 +4,7 @@ Router de Busca RAG.
 from fastapi import APIRouter, HTTPException, Depends, Header
 from typing import List, Optional
 
-from app.models.knowledge import KnowledgeSearch, KnowledgeSearchResponse, KnowledgeSearchResult
+from app.models.knowledge import KnowledgeSearch, KnowledgeSearchResponse, KnowledgeSearchResult, Knowledge
 from app.services.rag import RAGService
 from app.services.api_key_service import APIKeyService
 

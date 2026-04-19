@@ -4,7 +4,7 @@ Serviço de gestão de API Keys.
 from typing import Optional, List, Dict, Any
 from datetime import datetime
 
-from database.supabase_client import db
+from database.database import db
 
 
 class APIKeyService:
@@ -52,8 +52,10 @@ class APIKeyService:
         Returns:
             Dados da key
         """
-        result = await self.db.client.table("api_keys").select("*").eq("id", key_id).execute()
-        return result.data[0] if result.data else None
+        result = await self.db.fetchrow(
+            "SELECT * FROM api_keys WHERE id = $1", key_id
+        )
+        return dict(result) if result else None
 
     async def get_key_by_hash(self, key_hash: str) -> Optional[Dict[str, Any]]:
         """
@@ -89,8 +91,10 @@ class APIKeyService:
         Returns:
             True se desativada
         """
-        result = await self.db.client.table("api_keys").update({"is_active": False}).eq("id", key_id).execute()
-        return len(result.data) > 0
+        result = await self.db.execute(
+            "UPDATE api_keys SET is_active = false WHERE id = $1", key_id
+        )
+        return "UPDATE 1" in result
 
     async def verify_key(self, api_key: str) -> bool:
         """

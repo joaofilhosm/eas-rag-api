@@ -10,10 +10,10 @@ from functools import lru_cache
 class Settings(BaseSettings):
     """Configurações da aplicação carregadas de variáveis de ambiente."""
 
-    # Supabase
-    supabase_url: str
-    supabase_key: str
-    supabase_service_key: str
+    # PostgreSQL + pgvector
+    database_url: str = "postgresql://postgres:postgres@localhost:5432/eas_rag"
+    database_pool_size: int = 10
+    database_max_overflow: int = 20
 
     # OpenRouter (LLM Provider)
     openrouter_api_key: str

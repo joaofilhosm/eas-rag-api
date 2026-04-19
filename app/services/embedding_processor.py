@@ -5,7 +5,7 @@ import asyncio
 from typing import List, Dict, Any
 
 from app.services.embeddings import embedding_service
-from database.supabase_client import db
+from database.database import db
 
 
 class EmbeddingProcessor:
@@ -31,9 +31,11 @@ class EmbeddingProcessor:
         Returns:
             Lista de conhecimentos pendentes
         """
-        result = await db.client.table("knowledge_base").select("*").eq("embedding_status", "pending").limit(limit).execute()
-
-        return result.data if result.data else []
+        results = await db.fetch(
+            "SELECT * FROM knowledge_base WHERE embedding_status = 'pending' LIMIT $1",
+            limit
+        )
+        return [dict(r) for r in results]
 
     async def process_batch(self) -> Dict[str, int]:
         """
@@ -71,7 +73,10 @@ class EmbeddingProcessor:
                 print(f"✗ Erro ao processar {knowledge['id']}: {str(e)}")
 
                 # Marca como erro
-                await db.client.table("knowledge_base").update({"embedding_status": "error"}).eq("id", knowledge["id"]).execute()
+                await db.execute(
+                    "UPDATE knowledge_base SET embedding_status = 'error' WHERE id = $1",
+                    knowledge["id"]
+                )
 
         return {
             "processed": processed,
@@ -146,15 +151,21 @@ class EmbeddingProcessor:
 
 async def main():
     """Função principal para execução standalone."""
-    processor = EmbeddingProcessor(batch_size=10)
+    # Conecta ao banco
+    await db.connect()
 
-    print("Iniciando processamento de embeddings...")
-    result = await processor.process_all()
+    try:
+        processor = EmbeddingProcessor(batch_size=10)
 
-    print(f"\nProcessamento concluído:")
-    print(f"  - Processados: {result['processed']}")
-    print(f"  - Falhas: {result['failed']}")
-    print(f"  - Batches: {result['batches']}")
+        print("Iniciando processamento de embeddings...")
+        result = await processor.process_all()
+
+        print(f"\nProcessamento concluído:")
+        print(f"  - Processados: {result['processed']}")
+        print(f"  - Falhas: {result['failed']}")
+        print(f"  - Batches: {result['batches']}")
+    finally:
+        await db.disconnect()
 
 
 if __name__ == "__main__":

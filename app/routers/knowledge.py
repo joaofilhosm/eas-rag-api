@@ -7,7 +7,7 @@ from uuid import UUID
 
 from app.models.knowledge import Knowledge, KnowledgeCreate, KnowledgeUpdate
 from app.services.api_key_service import APIKeyService
-from database.supabase_client import db
+from database.database import db
 
 router = APIRouter()
 api_key_service = APIKeyService()
@@ -166,23 +166,54 @@ async def update_knowledge(
         )
 
     # Prepara dados para atualização
-    update_data = data.dict(exclude_unset=True)
+    update_fields = []
+    update_values = []
+    param_idx = 1
 
-    if not update_data:
+    if data.titulo is not None:
+        update_fields.append(f"titulo = ${param_idx}")
+        update_values.append(data.titulo)
+        param_idx += 1
+
+    if data.conteudo is not None:
+        update_fields.append(f"conteudo = ${param_idx}")
+        update_values.append(data.conteudo)
+        param_idx += 1
+
+    if data.categoria is not None:
+        update_fields.append(f"categoria = ${param_idx}")
+        update_values.append(data.categoria)
+        param_idx += 1
+
+    if data.tags is not None:
+        update_fields.append(f"tags = ${param_idx}")
+        update_values.append(data.tags)
+        param_idx += 1
+
+    if data.metadata is not None:
+        import json
+        update_fields.append(f"metadata = ${param_idx}")
+        update_values.append(json.dumps(data.metadata))
+        param_idx += 1
+
+    if not update_fields:
         raise HTTPException(
             status_code=400,
             detail="No fields to update"
         )
 
-    result = await db.client.table("knowledge_base").update(update_data).eq("id", knowledge_id).execute()
+    update_values.append(knowledge_id)
+    query = f"UPDATE knowledge_base SET {', '.join(update_fields)}, updated_at = NOW() WHERE id = ${param_idx} RETURNING *"
 
-    if not result.data:
+    result = await db.fetchrow(query, *update_values)
+
+    if not result:
         raise HTTPException(
             status_code=500,
             detail="Failed to update knowledge"
         )
 
-    return Knowledge(**result.data[0])
+    return Knowledge(**dict(result))
 
 
 @router.delete("/knowledge/{knowledge_id}")

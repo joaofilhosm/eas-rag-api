@@ -3,7 +3,7 @@
 ## Índice
 
 1. [Pré-requisitos](#pré-requisitos)
-2. [Configuração do Supabase](#configuração-do-supabase)
+2. [Configuração do PostgreSQL](#configuração-do-postgresql)
 3. [Configuração do OpenRouter](#configuração-do-openrouter)
 4. [Instalação Local](#instalação-local)
 5. [Instalação com Docker](#instalação-com-docker)
@@ -18,7 +18,7 @@
 ### Obrigatórios
 
 - **Python 3.11+** (recomendado 3.12)
-- **Conta no Supabase** (gratuita) - [supabase.com](https://supabase.com)
+- **PostgreSQL 16+** com extensão **pgvector**
 - **Conta no OpenRouter** (ou OpenAI) - [openrouter.ai](https://openrouter.ai)
 
 ### Opcionais
@@ -28,45 +28,69 @@
 
 ---
 
-## Configuração do Supabase
+## Configuração do PostgreSQL
 
-### 1. Criar Projeto
+### Opção 1: Docker (Recomendado)
 
-1. Acesse [supabase.com](https://supabase.com)
-2. Clique em "New Project"
-3. Preencha:
-   - **Name**: `eas-rag-db`
-   - **Database Password**: (anote bem!)
-   - **Region**: Escolha a mais próxima
-
-### 2. Obter Credenciais
-
-1. No dashboard, vá em **Settings** > **API**
-2. Copie:
-   - **Project URL** → `SUPABASE_URL`
-   - **anon public** → `SUPABASE_KEY`
-   - **service_role** → `SUPABASE_SERVICE_KEY` (⚠️ Mantenha secreta!)
-
-### 3. Executar Schema SQL
-
-1. Vá em **SQL Editor**
-2. Crie uma nova query
-3. Cole o conteúdo de `database/schema.sql`
-4. Execute (Play button)
-
-```sql
--- Verificar se funcionou
-SELECT * FROM sources;
-SELECT * FROM api_keys LIMIT 1;
+```bash
+# Usar a imagem oficial com pgvector
+docker run -d \
+  --name eas-postgres \
+  -e POSTGRES_USER=postgres \
+  -e POSTGRES_PASSWORD=postgres \
+  -e POSTGRES_DB=eas_rag \
+  -p 5432:5432 \
+  pgvector/pgvector:pg16
 ```
 
-### 4. Habilitar pgvector
+### Opção 2: Instalação Local
 
-O schema já inclui `CREATE EXTENSION IF NOT EXISTS vector`, mas você pode verificar:
+#### Ubuntu/Debian
 
-```sql
-SELECT * FROM pg_extension WHERE extname = 'vector';
+```bash
+# Adicionar repositório do PostgreSQL
+sudo sh -c 'echo "deb http://apt.postgresql.org/pub/repos/apt $(lsb_release -cs)-pgdg main" > /etc/apt/sources.list.d/pgdg.list'
+wget -qO- https://www.postgresql.org/media/keys/ACCC4CF8.asc | sudo tee /etc/apt/trusted.gpg.d/pgdg.asc &>/dev/null
+
+# Instalar PostgreSQL 16
+sudo apt update
+sudo apt install postgresql-16 postgresql-16-pgvector
+
+# Iniciar serviço
+sudo systemctl start postgresql
+sudo systemctl enable postgresql
+
+# Criar banco de dados
+sudo -u postgres psql -c "CREATE DATABASE eas_rag;"
+sudo -u postgres psql -c "CREATE EXTENSION IF NOT EXISTS vector;" eas_rag
 ```
+
+#### Windows
+
+1. Baixe PostgreSQL 16 de https://www.postgresql.org/download/windows/
+2. Instale normalmente
+3. Instale a extensão pgvector:
+   ```sql
+   CREATE EXTENSION IF NOT EXISTS vector;
+   ```
+
+### Criar Banco de Dados
+
+```bash
+# Conectar ao PostgreSQL
+psql -U postgres
+
+# Criar banco de dados
+CREATE DATABASE eas_rag;
+
+# Conectar ao banco
+\c eas_rag
+
+# Executar schema
+\i database/schema.sql
+```
+
+Ou execute o schema.sql manualmente via pgAdmin ou DBeaver.
 
 ---
 
@@ -96,10 +120,11 @@ SELECT * FROM pg_extension WHERE extname = 'vector';
 
 ## Instalação Local
 
-### 1. Clonar/Copiar Projeto
+### 1. Clonar Projeto
 
 ```bash
-cd eas
+git clone https://github.com/joaofilhosm/eas-rag-api.git
+cd eas-rag-api
 ```
 
 ### 2. Criar Ambiente Virtual
@@ -129,10 +154,11 @@ cp .env.example .env
 Edite `.env`:
 
 ```env
-# Supabase
-SUPABASE_URL=https://xxx.supabase.co
-SUPABASE_KEY=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
-SUPABASE_SERVICE_KEY=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+# PostgreSQL
+DATABASE_URL=postgresql://postgres:postgres@localhost:5432/eas_rag
+DB_USER=postgres
+DB_PASSWORD=postgres
+DB_NAME=eas_rag
 
 # OpenRouter
 OPENROUTER_API_KEY=sk-or-xxx
@@ -143,7 +169,14 @@ DEFAULT_MODEL=openai/gpt-4o-mini
 API_MASTER_KEY=sua-chave-master-secreta-aqui
 ```
 
-### 5. Executar
+### 5. Inicializar Banco de Dados
+
+```bash
+# Conectar ao PostgreSQL e executar
+psql -U postgres -d eas_rag -f database/schema.sql
+```
+
+### 6. Executar
 
 ```bash
 python run.py
@@ -159,15 +192,13 @@ uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
 
 ## Instalação com Docker
 
-### 1. Build da Imagem
+### 1. Build e Run
 
 ```bash
+# Build
 docker build -t eas-api .
-```
 
-### 2. Executar Container
-
-```bash
+# Run (com PostgreSQL externo)
 docker run -d \
   --name eas-api \
   -p 8000:8000 \
@@ -175,16 +206,31 @@ docker run -d \
   eas-api
 ```
 
-### 3. Com Docker Compose
+### 2. Com Docker Compose (Recomendado)
 
 ```bash
+# Iniciar todos os serviços
 docker-compose up -d
+
+# Ver logs
+docker-compose logs -f
+
+# Parar
+docker-compose down
 ```
 
-### 4. Verificar Logs
+### 3. Acessar Adminer (Opcional)
 
 ```bash
-docker logs eas-api -f
+# Incluir perfil admin
+docker-compose --profile admin up -d
+
+# Acessar http://localhost:8080
+# Sistema: PostgreSQL
+# Servidor: postgres
+# Usuário: postgres
+# Senha: postgres
+# Banco: eas_rag
 ```
 
 ---
@@ -195,9 +241,7 @@ docker logs eas-api -f
 
 | Variável | Descrição | Exemplo |
 |----------|-----------|---------|
-| `SUPABASE_URL` | URL do projeto Supabase | `https://xxx.supabase.co` |
-| `SUPABASE_KEY` | Chave anon/public | `eyJhbGciOiJI...` |
-| `SUPABASE_SERVICE_KEY` | Chave service role | `eyJhbGciOiJI...` |
+| `DATABASE_URL` | URL de conexão PostgreSQL | `postgresql://user:pass@host:5432/db` |
 | `OPENROUTER_API_KEY` | API Key OpenRouter | `sk-or-xxx` |
 | `API_MASTER_KEY` | Master key para admin | `minha-chave-secreta` |
 
@@ -205,16 +249,18 @@ docker logs eas-api -f
 
 | Variável | Default | Descrição |
 |----------|---------|-----------|
+| `DB_USER` | `postgres` | Usuário do banco |
+| `DB_PASSWORD` | `postgres` | Senha do banco |
+| `DB_NAME` | `eas_rag` | Nome do banco |
+| `DB_PORT` | `5432` | Porta do banco |
 | `OPENROUTER_BASE_URL` | `https://openrouter.ai/api/v1` | URL base |
 | `DEFAULT_MODEL` | `openai/gpt-4o-mini` | Modelo LLM padrão |
 | `FALLBACK_MODEL` | `anthropic/claude-3.5-sonnet` | Modelo fallback |
 | `EMBEDDING_MODEL` | `text-embedding-3-small` | Modelo de embedding |
-| `EMBEDDING_DIMENSIONS` | `1536` | Dimensões do embedding |
 | `HOST` | `0.0.0.0` | Host do servidor |
 | `PORT` | `8000` | Porta do servidor |
 | `DEBUG` | `true` | Modo debug |
 | `SCRAPER_DELAY_SECONDS` | `2` | Delay entre requests |
-| `SCRAPER_MAX_RETRIES` | `3` | Máximo de tentativas |
 | `API_KEY_EXPIRATION_DAYS` | `365` | Dias até expirar key |
 
 ---
@@ -272,18 +318,33 @@ curl -X POST http://localhost:8000/api/v1/search \
 
 ## Troubleshooting
 
-### Erro: "Failed to connect to Supabase"
+### Erro: "Connection refused" ao conectar ao PostgreSQL
 
-**Causa**: Credenciais incorretas ou banco não acessível.
+**Causa**: PostgreSQL não está rodando ou porta incorreta.
 
 **Solução**:
-1. Verifique `SUPABASE_URL` e `SUPABASE_KEY`
-2. Confirme que o projeto Supabase está ativo
-3. Teste conexão manual:
-   ```bash
-   curl https://xxx.supabase.co/rest/v1/ \
-     -H "apikey: eyJhbGciOiJI..."
-   ```
+```bash
+# Verificar se PostgreSQL está rodando
+sudo systemctl status postgresql  # Linux
+# ou
+docker ps | grep postgres         # Docker
+
+# Verificar porta
+netstat -an | grep 5432
+```
+
+### Erro: "extension vector does not exist"
+
+**Causa**: pgvector não está instalado.
+
+**Solução**:
+```sql
+-- Conectar ao banco
+\c eas_rag
+
+-- Criar extensão
+CREATE EXTENSION IF NOT EXISTS vector;
+```
 
 ### Erro: "Invalid API Key"
 
@@ -309,14 +370,6 @@ curl -X POST http://localhost:8000/api/v1/search \
      -d '{"model": "text-embedding-3-small", "input": "teste"}'
    ```
 
-### Erro: "pgvector extension not found"
-
-**Causa**: Extensão pgvector não instalada.
-
-**Solução**:
-1. Execute o schema SQL novamente
-2. Verifique se o Supabase suporta pgvector (todos os planos suportam)
-
 ### Erro: "Port 8000 already in use"
 
 **Causa**: Outro processo usando a porta.
@@ -331,14 +384,21 @@ netstat -ano | findstr :8000  # Windows
 uvicorn app.main:app --port 8001
 ```
 
-### Scraper não funciona
+### Docker Compose não inicia
 
-**Causa**: Sites podem bloquear requests ou mudar estrutura.
+**Causa**: Conflito de portas ou volumes.
 
 **Solução**:
-1. Verifique logs do scraper
-2. Teste URL manualmente
-3. Atualize seletores CSS se necessário
+```bash
+# Parar todos containers
+docker-compose down -v
+
+# Rebuild
+docker-compose build --no-cache
+
+# Iniciar
+docker-compose up -d
+```
 
 ---
 
@@ -357,4 +417,4 @@ uvicorn app.main:app --port 8001
 Para problemas não resolvidos:
 1. Verifique os logs: `docker logs eas-api -f`
 2. Abra uma issue no repositório
-3. Consulte a documentação oficial do Supabase/OpenRouter
+3. Consulte a documentação oficial do PostgreSQL/pgvector

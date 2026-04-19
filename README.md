@@ -10,19 +10,49 @@ Esta API permite criar uma base de conhecimento inteligente com:
 - **Busca Semântica**: Pesquisa usando embeddings vetoriais (pgvector)
 - **IA Orquestradora**: OpenRouter (GPT-4o/Claude) para extração inteligente
 - **API Keys**: Autenticação com hash MD5
+- **PostgreSQL + pgvector**: Banco de dados self-hosted
+
+## Stack Tecnológica
+
+- **FastAPI** - Framework web assíncrono
+- **PostgreSQL + pgvector** - Banco de dados com busca vetorial
+- **OpenRouter** - Provider de LLM (GPT-4o, Claude 3.5)
+- **asyncpg** - Cliente PostgreSQL assíncrono
+- **Docker** - Containerização
 
 ## Início Rápido
+
+### Com Docker (Recomendado)
+
+```bash
+# Clonar e iniciar
+git clone https://github.com/joaofilhosm/eas-rag-api.git
+cd eas-rag-api
+
+# Configurar variáveis de ambiente
+cp .env.example .env
+# Edite .env com suas credenciais
+
+# Iniciar serviços
+docker-compose up -d
+
+# Acessar API
+curl http://localhost:8000/api/v1/health
+```
+
+### Instalação Local
 
 ```bash
 # 1. Instalar dependências
 pip install -r requirements.txt
 
-# 2. Configurar variáveis de ambiente
-cp .env.example .env
-# Edite .env com suas credenciais
+# 2. Configurar PostgreSQL com pgvector
+createdb eas_rag
+psql -d eas_rag -f database/schema.sql
 
-# 3. Configurar banco de dados
-# Execute database/schema.sql no Supabase
+# 3. Configurar variáveis de ambiente
+cp .env.example .env
+# Edite .env
 
 # 4. Executar
 python run.py
@@ -47,14 +77,6 @@ python run.py
 - LILACS
 - CAPES
 
-## Tecnologias
-
-- FastAPI + Uvicorn
-- Supabase (PostgreSQL + pgvector)
-- OpenRouter (GPT-4o, Claude 3.5)
-- BeautifulSoup4 + httpx
-- APScheduler
-
 ## Endpoints Principais
 
 | Método | Endpoint | Descrição |
@@ -65,12 +87,41 @@ python run.py
 | `POST` | `/api/v1/api-keys` | Criar API Key |
 | `GET` | `/api/v1/scraper/status` | Status do scraper |
 
-## Docker
+## Docker Compose
 
-```bash
-docker-compose up -d
+```yaml
+services:
+  postgres:
+    image: pgvector/pgvector:pg16
+    environment:
+      POSTGRES_DB: eas_rag
+      POSTGRES_PASSWORD: postgres
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
+  eas-api:
+    build: .
+    ports:
+      - "8000:8000"
+    env_file: .env
+    depends_on:
+      - postgres
 ```
+
+## Variáveis de Ambiente
+
+| Variável | Descrição | Obrigatório |
+|----------|-----------|-------------|
+| `DATABASE_URL` | URL de conexão PostgreSQL | ✅ |
+| `OPENROUTER_API_KEY` | API Key OpenRouter | ✅ |
+| `API_MASTER_KEY` | Master key para admin | ✅ |
 
 ## Licença
 
 MIT
+
+## Autor
+
+joaofilhosm

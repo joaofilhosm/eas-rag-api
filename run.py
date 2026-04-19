@@ -2,8 +2,24 @@
 EAS - API RAG Base de Conhecimento
 Entry Point Principal
 """
+import asyncio
 import uvicorn
 from app.config import get_settings
+from database.database import db
+
+
+async def startup():
+    """Inicialização do banco de dados."""
+    print("📡 Conectando ao PostgreSQL...")
+    await db.connect()
+    print("✓ Conectado ao PostgreSQL")
+
+
+async def shutdown():
+    """Desligamento do banco de dados."""
+    print("📡 Desconectando do PostgreSQL...")
+    await db.disconnect()
+    print("✓ Desconectado do PostgreSQL")
 
 
 def main():
@@ -21,7 +37,7 @@ def main():
 ║   🔗 ReDoc: http://{settings.host}:{settings.port}/redoc              ║
 ║                                                              ║
 ║   🤖 Modelo: {settings.default_model}                          ║
-║   🗄️  Database: {settings.supabase_url.split('//')[1].split('.')[0]}              ║
+║   🗄️  Database: PostgreSQL + pgvector                        ║
 ║                                                              ║
 ╚══════════════════════════════════════════════════════════════╝
     """)

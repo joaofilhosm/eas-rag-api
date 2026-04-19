@@ -2,6 +2,28 @@
 version: '3.8'
 
 services:
+  # PostgreSQL + pgvector
+  postgres:
+    image: pgvector/pgvector:pg16
+    container_name: eas-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${DB_USER:-postgres}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-postgres}
+      POSTGRES_DB: ${DB_NAME:-eas_rag}
+    ports:
+      - "${DB_PORT:-5432}:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./database/schema.sql:/docker-entrypoint-initdb.d/01-schema.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - eas-network
+
   # API Principal
   eas-api:
     build:
@@ -10,13 +32,17 @@ services:
     container_name: eas-api
     restart: unless-stopped
     ports:
-      - "8000:8000"
+      - "${API_PORT:-8000}:8000"
     env_file:
       - .env
     environment:
       - HOST=0.0.0.0
       - PORT=8000
-      - DEBUG=false
+      - DEBUG=${DEBUG:-false}
+      - DATABASE_URL=postgresql://${DB_USER:-postgres}:${DB_PASSWORD:-postgres}@postgres:5432/${DB_NAME:-eas_rag}
+    depends_on:
+      postgres:
+        condition: service_healthy
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/api/v1/health"]
       interval: 30s
@@ -41,31 +67,34 @@ services:
     env_file:
       - .env
     environment:
-      - HOST=0.0.0.0
-      - PORT=8001
+      - DATABASE_URL=postgresql://${DB_USER:-postgres}:${DB_PASSWORD:-postgres}@postgres:5432/${DB_NAME:-eas_rag}
     command: ["python", "-m", "app.services.embedding_processor"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+      eas-api:
+        condition: service_healthy
     networks:
       - eas-network
-    depends_on:
-      - eas-api
     profiles:
       - workers
 
-  # Redis para cache (opcional - futuro)
-  # redis:
-  #   image: redis:7-alpine
-  #   container_name: eas-redis
-  #   restart: unless-stopped
-  #   ports:
-  #     - "6379:6379"
-  #   networks:
-  #     - eas-network
-  #   volumes:
-  #     - redis-data:/data
+  # Adminer (interface web para PostgreSQL) - opcional
+  adminer:
+    image: adminer:latest
+    container_name: eas-adminer
+    restart: unless-stopped
+    ports:
+      - "${ADMINER_PORT:-8080}:8080"
+    networks:
+      - eas-network
+    profiles:
+      - admin
+
+volumes:
+  postgres_data:
+    driver: local
 
 networks:
   eas-network:
     driver: bridge
-
-# volumes:
-#   redis-data:
