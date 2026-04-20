@@ -13,7 +13,7 @@ from bs4 import BeautifulSoup
 
 from app.config import get_settings
 from app.services.scraper_orchestrator import scraper_orchestrator
-from database.supabase_client import db
+from database import db
 
 
 class BaseScraper(ABC):

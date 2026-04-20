@@ -32,14 +32,14 @@ services:
     container_name: eas-api
     restart: unless-stopped
     ports:
-      - "${API_PORT:-8000}:8000"
+      - "${API_PORT:-4010}:8000"
     env_file:
       - .env
     environment:
       - HOST=0.0.0.0
       - PORT=8000
       - DEBUG=${DEBUG:-false}
-      - DATABASE_URL=postgresql://${DB_USER:-postgres}:${DB_PASSWORD:-postgres}@postgres:5432/${DB_NAME:-eas_rag}
+      - DATABASE_URL=postgresql://postgres:postgres@postgres:5432/eas_rag
     depends_on:
       postgres:
         condition: service_healthy

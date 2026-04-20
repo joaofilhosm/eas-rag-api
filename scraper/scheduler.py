@@ -8,7 +8,7 @@ from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.interval import IntervalTrigger
 
 from app.config import get_settings, SCRAPER_SOURCES
-from database.supabase_client import db
+from database import db
 from scraper.sources.dicasdetreino import DicasDeTreinoScraper
 from scraper.sources.hipertrofia_org import HipertrofiaOrgScraper
 from scraper.sources.scientific import ScientificScraper

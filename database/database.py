@@ -23,7 +23,6 @@ class Database:
                 self.settings.database_url,
                 min_size=5,
                 max_size=self.settings.database_pool_size,
-                max_overflow=self.settings.database_max_overflow,
                 command_timeout=60
             )
         return self.pool

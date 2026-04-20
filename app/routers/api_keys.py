@@ -8,7 +8,7 @@ from datetime import datetime
 from app.models.api_key import APIKeyCreate, APIKeyResponse, APIKeyList
 from app.services.api_key_service import APIKeyService
 from app.config import get_settings
-from app.utils.helpers import generate_md5, hash_api_key
+from app.utils.helpers import generate_md5_key, hash_api_key
 
 router = APIRouter()
 settings = get_settings()
@@ -52,7 +52,7 @@ async def create_api_key(
     - **email**: Email do proprietário opcional
     """
     # Gera nova key
-    api_key = generate_md5(prefix="eas")
+    api_key = generate_md5_key(prefix="eas")
     key_hash = hash_api_key(api_key)
 
     # Salva no banco

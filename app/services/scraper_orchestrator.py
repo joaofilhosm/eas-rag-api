@@ -8,7 +8,7 @@ import asyncio
 from openai import AsyncOpenAI
 
 from app.config import get_settings
-from database.supabase_client import db
+from database import db
 
 
 class ScraperOrchestrator:
