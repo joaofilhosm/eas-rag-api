@@ -1,18 +1,29 @@
 """
 Router de Controle do Scraper.
 """
-from fastapi import APIRouter, HTTPException, Depends, Header
+from fastapi import APIRouter, HTTPException, Depends, Header, BackgroundTasks
 from typing import List, Optional
 from datetime import datetime
 
 from app.models.scraper import ScraperStatus, ScraperResult, SourceConfig, Source, ScraperStart, ScrapeLog
 from app.services.api_key_service import APIKeyService
+from app.services.scraper_service import scraper_service
 from database.database import db
 from app.config import get_settings
 
 router = APIRouter()
 api_key_service = APIKeyService()
 settings = get_settings()
+
+# Estado global do scraper
+scraper_state = {
+    "is_running": False,
+    "current_source": None,
+    "last_run_at": None,
+    "last_status": None,
+    "last_error": None,
+    "total_items": 0
+}
 
 
 def verify_master_key(master_key: str = Header(..., alias="X-Master-Key")):
@@ -22,15 +33,6 @@ def verify_master_key(master_key: str = Header(..., alias="X-Master-Key")):
     return True
 
 
-# Estado global do scraper
-scraper_state = {
-    "is_running": False,
-    "current_source": None,
-    "last_run_at": None,
-    "last_status": None
-}
-
-
 @router.get("/scraper/status", response_model=ScraperStatus)
 async def get_scraper_status(_: bool = Depends(verify_master_key)):
     """
@@ -38,13 +40,9 @@ async def get_scraper_status(_: bool = Depends(verify_master_key)):
 
     Requer header X-Master-Key.
     """
-    # Busca estatísticas
     stats = await db.get_stats()
-
-    # Conta fontes ativas
     sources = await db.get_sources(active_only=True)
 
-    # Conta fontes pendentes
     pending_sources = await db.fetch(
         "SELECT COUNT(*) FROM sources WHERE is_active = true AND (last_scraped_at IS NULL OR last_scraped_at < NOW() - INTERVAL '1 day' * scrape_frequency_hours)"
     )
@@ -64,10 +62,11 @@ async def get_scraper_status(_: bool = Depends(verify_master_key)):
 @router.post("/scraper/start")
 async def start_scraper(
     data: ScraperStart,
+    background_tasks: BackgroundTasks,
     _: bool = Depends(verify_master_key)
 ):
     """
-    Inicia scraping manual.
+    Inicia scraping de todas as fontes ou fontes específicas.
 
     Requer header X-Master-Key.
 
@@ -80,15 +79,71 @@ async def start_scraper(
             detail="Scraper is already running"
         )
 
-    # TODO: Implementar execução real do scraper
-    # Por enquanto retorna confirmação
+    # Marca como rodando
+    scraper_state["is_running"] = True
+    scraper_state["last_run_at"] = datetime.utcnow()
+    scraper_state["last_status"] = "running"
+
+    # Executa em background
+    background_tasks.add_task(
+        run_scraper_task,
+        data.source_ids,
+        data.force
+    )
 
     return {
         "success": True,
-        "message": "Scraper started",
+        "message": "Scraper started in background",
         "source_ids": data.source_ids,
         "force": data.force
     }
+
+
+async def run_scraper_task(source_ids: Optional[List[str]] = None, force: bool = False):
+    """Task de execução do scraper."""
+    try:
+        import aiohttp
+
+        async with aiohttp.ClientSession(
+            headers={"User-Agent": settings.scraper_user_agent},
+            timeout=aiohttp.ClientTimeout(total=30)
+        ) as session:
+            sources = await db.get_sources(active_only=True)
+
+            # Filtra por IDs se especificado
+            if source_ids:
+                sources = [s for s in sources if str(s["id"]) in source_ids]
+
+            total_items = 0
+
+            for source in sources:
+                scraper_state["current_source"] = source["name"]
+
+                result = await scraper_service.scrape_source(source, session)
+                total_items += result.get("items_saved", 0)
+
+                # Log de cada fonte
+                await db.create_scrape_log(
+                    source_id=source["id"],
+                    status=result.get("status", "success"),
+                    items_extracted=result.get("items_saved", 0),
+                    items_failed=len(result.get("errors", [])),
+                    error_message="\n".join(result.get("errors", []))[:500] if result.get("errors") else None,
+                    started_at=datetime.utcnow(),
+                    completed_at=datetime.utcnow()
+                )
+
+            scraper_state["last_status"] = "success"
+            scraper_state["total_items"] = total_items
+
+    except Exception as e:
+        scraper_state["last_status"] = "error"
+        scraper_state["last_error"] = str(e)
+        import traceback
+        traceback.print_exc()
+    finally:
+        scraper_state["is_running"] = False
+        scraper_state["current_source"] = None
 
 
 @router.post("/scraper/stop")
@@ -104,7 +159,6 @@ async def stop_scraper(_: bool = Depends(verify_master_key)):
             detail="Scraper is not running"
         )
 
-    # TODO: Implementar parada real
     scraper_state["is_running"] = False
     scraper_state["current_source"] = None
 
@@ -145,7 +199,7 @@ async def create_source(
     """
     result = await db.create_source(
         name=data.name,
-        url=data.url,
+        url=str(data.url),
         source_type=data.type.value,
         scrape_frequency_hours=data.scrape_frequency_hours
     )
@@ -202,6 +256,104 @@ async def deactivate_source(
         )
 
     return {"success": True, "message": "Source deactivated"}
+
+
+@router.put("/sources/{source_id}/activate")
+async def activate_source(
+    source_id: str,
+    _: bool = Depends(verify_master_key)
+):
+    """
+    Ativa uma fonte.
+
+    Requer header X-Master-Key.
+    """
+    result = await db.execute(
+        "UPDATE sources SET is_active = true WHERE id = $1",
+        source_id
+    )
+
+    if "UPDATE 1" not in result:
+        raise HTTPException(
+            status_code=404,
+            detail="Source not found"
+        )
+
+    return {"success": True, "message": "Source activated"}
+
+
+@router.post("/sources/{source_id}/scrape")
+async def scrape_single_source(
+    source_id: str,
+    background_tasks: BackgroundTasks,
+    _: bool = Depends(verify_master_key)
+):
+    """
+    Executa scraping de uma fonte específica.
+
+    Requer header X-Master-Key.
+    """
+    source = await db.get_source(source_id)
+
+    if not source:
+        raise HTTPException(
+            status_code=404,
+            detail="Source not found"
+        )
+
+    if scraper_state["is_running"]:
+        raise HTTPException(
+            status_code=409,
+            detail="Scraper is already running"
+        )
+
+    # Executa em background
+    background_tasks.add_task(
+        run_single_scrape,
+        source
+    )
+
+    return {
+        "success": True,
+        "message": f"Scraping started for {source['name']}",
+        "source_id": source_id
+    }
+
+
+async def run_single_scrape(source: dict):
+    """Executa scraping de uma fonte."""
+    try:
+        import aiohttp
+
+        async with aiohttp.ClientSession(
+            headers={"User-Agent": settings.scraper_user_agent},
+            timeout=aiohttp.ClientTimeout(total=30)
+        ) as session:
+            scraper_state["is_running"] = True
+            scraper_state["current_source"] = source["name"]
+
+            result = await scraper_service.scrape_source(source, session)
+
+            await db.create_scrape_log(
+                source_id=source["id"],
+                status=result.get("status", "success"),
+                items_extracted=result.get("items_saved", 0),
+                items_failed=len(result.get("errors", [])),
+                error_message="\n".join(result.get("errors", []))[:500] if result.get("errors") else None,
+                started_at=datetime.utcnow(),
+                completed_at=datetime.utcnow()
+            )
+
+            scraper_state["last_status"] = "success"
+
+    except Exception as e:
+        scraper_state["last_status"] = "error"
+        scraper_state["last_error"] = str(e)
+        import traceback
+        traceback.print_exc()
+    finally:
+        scraper_state["is_running"] = False
+        scraper_state["current_source"] = None
 
 
 @router.get("/scraper/logs", response_model=List[ScrapeLog])

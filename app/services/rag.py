@@ -44,8 +44,21 @@ class RAGService:
         Returns:
             Lista de resultados com similaridade
         """
+        # Verifica se há embeddings na base
+        try:
+            embedding_count = await db.fetchval("SELECT COUNT(*) FROM embeddings")
+            if embedding_count == 0:
+                # Sem embeddings, usa busca por palavras-chave
+                return await self._keyword_search(query, limit, categoria)
+        except:
+            pass
+
         # Gera embedding da query
-        query_embedding = await self.embedding_service.generate_embedding(query)
+        try:
+            query_embedding = await self.embedding_service.generate_embedding(query)
+        except:
+            # Se falhar ao gerar embedding, usa keyword search
+            return await self._keyword_search(query, limit, categoria)
 
         # Busca usando pgvector
         try:
@@ -56,6 +69,10 @@ class RAGService:
                 categoria=categoria,
                 tags=tags
             )
+
+            # Se não encontrou resultados, tenta keyword search
+            if not results:
+                return await self._keyword_search(query, limit, categoria)
 
             # Log da busca
             await db.execute(
@@ -108,36 +125,64 @@ class RAGService:
         Returns:
             Lista de resultados
         """
-        conditions = ["titulo ILIKE $1 OR conteudo ILIKE $1"]
-        params = [f"%{query}%"]
-        param_idx = 2
+        # Divide a query em palavras individuais para busca mais flexível
+        words = [w.strip().lower() for w in query.split() if len(w.strip()) > 2]
 
+        if not words:
+            words = [query.lower()]
+
+        # Cria condições para cada palavra (OR) e calcula relevância
+        word_conditions = []
+        params = []
+        for i, word in enumerate(words[:5]):  # Limite de 5 palavras
+            word_conditions.append(f"COALESCE((titulo ILIKE ${i+1})::int, 0) + COALESCE((conteudo ILIKE ${i+1})::int, 0)")
+            params.append(f"%{word}%")
+
+        relevance_expr = " + ".join(word_conditions)
+        param_idx = len(params) + 1
+
+        extra_conditions = ""
         if categoria:
-            conditions.append(f"categoria = ${param_idx}")
+            extra_conditions = f" AND categoria = ${param_idx}"
             params.append(categoria)
             param_idx += 1
 
         params.append(limit)
 
         query_sql = f"""
-        SELECT * FROM knowledge_base
-        WHERE {' AND '.join(conditions)}
-        ORDER BY created_at DESC
+        SELECT *, ({relevance_expr}) as relevance_score
+        FROM knowledge_base
+        WHERE ({' OR '.join([f'titulo ILIKE ${i+1} OR conteudo ILIKE ${i+1}' for i in range(len(words[:5]))])})
+        {extra_conditions}
+        ORDER BY relevance_score DESC, created_at DESC
         LIMIT ${param_idx}
         """
 
-        results = await db.fetch(query_sql, *params)
+        try:
+            results = await db.fetch(query_sql, *params)
+        except Exception as e:
+            # Fallback simples se a query complexa falhar
+            simple_query = """
+            SELECT * FROM knowledge_base
+            WHERE titulo ILIKE $1 OR conteudo ILIKE $1
+            ORDER BY created_at DESC
+            LIMIT $2
+            """
+            results = await db.fetch(simple_query, f"%{query}%", limit)
 
         # Log da busca
-        await db.execute(
-            """
-            INSERT INTO search_logs (query, results_count, search_type)
-            VALUES ($1, $2, $3)
-            """,
-            query,
-            len(results),
-            "keyword"
-        )
+        try:
+            await db.execute(
+                """
+                INSERT INTO search_logs (query, results_count, search_type)
+                VALUES ($1, $2, $3)
+                """,
+                query,
+                len(results),
+                "keyword"
+            )
+        except:
+            pass
 
         # Adiciona similarity fake para compatibilidade
         return [

@@ -4,6 +4,31 @@
 
 ---
 
+## Como Funciona a API
+
+A API EAS segue um fluxo inteligente para responder perguntas:
+
+```
+1. Usuário faz pergunta/consulta
+      ↓
+2. Busca na base de conhecimento (vetorial)
+      ↓
+3. Se encontrar → Retorna resultado com similaridade
+      ↓
+4. Se NÃO encontrar → Live Scrape (busca nas fontes configuradas em tempo real)
+      ↓
+5. IA extrai conteúdo relevante das páginas
+      ↓
+6. Retorna resultado para o cliente
+```
+
+**Arquitetura:**
+- **Base de Conhecimento**: Dados scrapeados e indexados (pgvector)
+- **Live Scrape**: Quando não encontra na base, scrapeia fontes configuradas em tempo real
+- **IA**: Usada APENAS para extrair conteúdo das páginas, NÃO para gerar respostas
+
+---
+
 ## Prompt Completo
 
 ```
@@ -107,7 +132,36 @@ Quando o usuário fizer uma pergunta:
 1. **Primeiro**, faça uma busca na API para obter informações relevantes da base de conhecimento
 2. **Segundo**, use as informações retornadas para formular uma resposta precisa
 3. **Terceiro**, cite as fontes quando relevante (título e URL original)
-4. **Quarto**, se não houver informações relevantes (similarity < 0.5), informe ao usuário
+4. **Quarto**, se não houver informações na base, a API usará **Live Search** (IA) para gerar uma resposta
+
+### Modo Live Scrape
+
+Quando a base de conhecimento está vazia ou não encontra resultados relevantes, a API automaticamente faz **Live Scrape** - busca em tempo real nas fontes configuradas (sites de fitness, bases científicas, etc):
+
+**Fontes Configuradas:**
+- Sites de fitness (Dicas de Treino, Hipertrofia.org)
+- Bases científicas (SciELO, PubMed, LILACS)
+- Qualquer fonte adicionada pelo administrador
+
+**Resposta Live Scrape:**
+```json
+{
+  "results": [{
+    "knowledge": {
+      "titulo": "Conteúdo extraído de [Fonte]",
+      "conteudo": "Conteúdo scrapeado da fonte...",
+      "categoria": "live_scrape",
+      "tags": ["scrape", "temporal"]
+    },
+    "similarity": 1.0,
+    "live_search": true,
+    "source": "live_scrape"
+  }],
+  "search_type": "live_scrape"
+}
+```
+
+**Importante:** O Live Scrape busca em tempo real nas fontes - não usa IA para gerar respostas, apenas para extrair conteúdo das páginas.
 
 ### Exemplo de Fluxo
 
@@ -131,10 +185,11 @@ Fontes:
 
 ## Cuidados Importantes
 
-1. **Sempre verifique a similaridade** - Se for menor que 0.5, informe que não encontrou informações relevantes
-2. **Não invente informações** - Use apenas o que está na base de conhecimento
-3. **Cite as fontes** - Inclua URLs originais quando disponíveis
-4. **Seja honesto sobre limitações** - Se não souber, diga que não há dados na base
+1. **Sempre verifique o `search_type`** - Se for `live_search`, a resposta foi gerada por IA
+2. **Verifique `live_search: true`** nos resultados - Indica resposta da IA
+3. **Não invente informações** - Use apenas o que está na resposta da API
+4. **Cite as fontes** - Inclua URLs originais quando disponíveis
+5. **Informe ao usuário** - Se for `live_search`, diga que a resposta é baseada em conhecimento geral da IA
 
 ## Categorias e Quando Usar
 
@@ -250,7 +305,7 @@ Sempre que o usuário fizer uma pergunta:
 2. Use os resultados para responder
 3. Cite as fontes
 
-Se não encontrar resultados relevantes (similarity < 0.5), informe o usuário.
+Se search_type for "live_search", a resposta foi gerada por IA - informe ao usuário.
 ```
 
 ---
